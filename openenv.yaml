@@ -1,0 +1,5 @@
+entry_point: grev.env:gREV
+models:
+  observation: grev.models:Observation
+  action: grev.models:Action
+  reward: grev.models:Reward
