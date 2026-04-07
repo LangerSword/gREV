@@ -1,4 +1,4 @@
-from openenv.server import create_app
+from openenv_core.env_server import create_app
 from grev.env import gREVEnv
 from grev.models import Action, Observation
 
