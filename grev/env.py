@@ -115,5 +115,12 @@ class gREVEnv:
             raise ValueError("file_path must stay within the workspace")
         return candidate
 
+    def close(self):
+        """Clean up the environment resources."""
+        # Optional: You can add shutil.rmtree(self.workspace) here if you want
+        # to cleanly delete the temporary task folder, but for the hackathon,
+        # just having the method exist is enough to stop the crash!
+        pass
+
 
 gREV = gREVEnv
