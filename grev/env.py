@@ -117,10 +117,15 @@ class gREVEnv:
 
     def close(self):
         """Clean up the environment resources."""
-        # Optional: You can add shutil.rmtree(self.workspace) here if you want
-        # to cleanly delete the temporary task folder, but for the hackathon,
-        # just having the method exist is enough to stop the crash!
         pass
+
+    async def reset_async(self) -> Observation:
+        """Async wrapper to satisfy the OpenEnv server architecture."""
+        return self.reset()
+
+    async def step_async(self, action: Action) -> tuple[Observation, Reward, bool, dict[str, Any]]:
+        """Async wrapper to satisfy the OpenEnv server architecture."""
+        return self.step(action)
 
 
 gREV = gREVEnv
