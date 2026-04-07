@@ -1,0 +1,15 @@
+[project]
+name = "grev"
+version = "0.1.0"
+description = "gREV OpenEnv Sandbox"
+requires-python = ">=3.10"
+dependencies = [
+    "openenv-core",
+    "pydantic",
+    "openai",
+    "pytest"
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
