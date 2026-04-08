@@ -3,9 +3,8 @@ version: "1.0.0"
 description: >
   OpenEnv environment where AI agents are dropped into broken Python
   repositories and must diagnose and fix them — using real shell commands
-  and file edits — until the full pytest suite passes. Simulates the
-  real-world CI/CD debugging task that software engineers perform daily.
-  Grading is fully deterministic: score = pytest_passed / pytest_total.
+  and file edits — until the full pytest suite passes.
+Grading is fully deterministic: score = pytest_passed / pytest_total.
 tags:
   - openenv
   - devops
