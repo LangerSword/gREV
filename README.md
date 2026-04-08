@@ -1,23 +1,4 @@
----
-title: gREV OpenEnv
-emoji: 🛠️
-colorFrom: blue
-colorTo: green
-sdk: docker
-app_port: 7860
-tags:
-  - openenv
-  - devops
-  - ci-cd
-  - python
-  - debugging
-  - pytest
-  - code-review
-  - reinforcement-learning
-  - agent-environment
-short_description: OpenEnv environment where AI agents fix broken Python repos via pytest-driven reward
-pinned: false
----
+
 
 # gREV
 
