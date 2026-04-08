@@ -169,13 +169,25 @@ def run_inference():
             print(f"Error calling /grade endpoint for task {task}: {e}")
 
 if __name__ == "__main__":
+    if __name__ == "__main__":
+    import time
+    
+    # 1. Wait for the server to actually wake up
+    print(f"Waiting for environment at {ENV_URL} to boot up...")
+    for _ in range(30):
+        try:
+            requests.get(ENV_URL, timeout=2)
+            print("Environment is healthy and ready!")
+            break
+        except Exception:
+            time.sleep(1)
+
+    # 2. Run inference with a giant safety net to catch remote errors
     try:
-        print("Starting inference protocol...")
         run_inference()
     except Exception as e:
-        print(f"CRITICAL INFERENCE CRASH: {e}")
+        print(f"\nCRITICAL INFERENCE CRASH: {e}")
         import traceback
         traceback.print_exc()
-        # Exit cleanly so the evaluator captures the logs
         import sys
-        sys.exit(1)
+        sys.exit(1) # Tell the evaluator exactly why we failed
