@@ -78,16 +78,26 @@ class gREVEnv:
                         score = 1.0
                         done = True
                     else:
+                        # Parse pytest summary (e.g., "== 2 failed, 3 passed in 0.12s ==")
+                        passed = 0
+                        failed = 0
+                        
                         passed_match = re.search(r"(\d+)\s+passed", stdout)
                         failed_match = re.search(r"(\d+)\s+failed", stdout)
-                        if passed_match and failed_match:
+                        
+                        if passed_match: 
                             passed = int(passed_match.group(1))
+                        if failed_match: 
                             failed = int(failed_match.group(1))
-                            total = passed + failed
-                            score = passed / total if total > 0 else 0.1
+                        
+                        total = passed + failed
+                        if total > 0:
+                            score = passed / total
                         else:
+                            # Code ran but tests crashed entirely
                             score = 0.1
                         done = False
+
         else:
             stderr = f"Unsupported action_type: {action.action_type}"
 
