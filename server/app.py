@@ -76,3 +76,14 @@ async def hackathon_grader(request: Request):
             "success": False, 
             "breakdown": {"error": str(e)}
         }
+# ==========================================
+# 4. MULTI-MODE DEPLOYMENT ENTRYPOINT
+# Satisfies the platform deployment checker
+# ==========================================
+def main():
+    import uvicorn
+    # 0.0.0.0 binds to all interfaces, 7860 is the standard HF Spaces port
+    uvicorn.run(app, host="0.0.0.0", port=7860)
+
+if __name__ == "__main__":
+    main()
