@@ -1,4 +1,22 @@
-# gREV — RepoRescueEnv
+---
+title: gREV
+emoji: 🛠️
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+pinned: false
+short_description: RL sandbox for autonomous coding agents.
+tags:
+  - openenv
+  - reinforcement-learning
+  - agents
+  - devops
+  - python
+  - hackathon
+---
+
+# gREV 
 
 > An **OpenEnv-compliant** RL environment where AI agents are dropped into broken Python repositories and must diagnose and fix them — using real shell commands and file edits — until the full `pytest` suite passes.
 
