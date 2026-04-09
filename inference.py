@@ -1,193 +1,278 @@
+"""
+gREV Inference Script
+=====================
+Mandatory env vars:
+    API_BASE_URL   LLM endpoint  (default: Groq)
+    MODEL_NAME     Model to use   (default: llama-3.3-70b-versatile)
+    GROQ_API_KEY   Groq key  OR
+    HF_TOKEN       HF token as fallback
+    ENV_URL        gREV server   (default: http://localhost:7860)
+
+STDOUT format (validated by the hackathon runner):
+    [START] task=<task> env=<benchmark> model=<model>
+    [STEP]  step=<n> action=<json_str> reward=<0.00> done=<true|false> error=<msg|null>
+    [END]   success=<true|false> steps=<n> score=<0.000> rewards=<r1,r2,...>
+"""
+
 import os
 import json
-import requests
 import re
+import sys
+import time
+import textwrap
+import requests
+from typing import List, Optional
 from openai import OpenAI
 
-# --- Configuration & Environment Variables ---
-ENV_URL = os.getenv("ENV_URL", "http://localhost:7860")
+# ── Configuration ────────────────────────────────────────────────────────────
+API_BASE_URL = os.getenv("API_BASE_URL", "https://api.groq.com/openai/v1")
+MODEL_NAME   = os.getenv("MODEL_NAME",   "llama-3.3-70b-versatile")
+API_KEY      = (
+    os.getenv("GROQ_API_KEY")
+    or os.getenv("HF_TOKEN")
+    or os.getenv("API_KEY")
+)
+ENV_URL      = os.getenv("ENV_URL", "http://localhost:7860")
+BENCHMARK    = "gREV"
+MAX_STEPS    = 10
 
-# Quick sanitize to strip Markdown if it accidentally gets passed into the terminal export
-if ENV_URL.startswith("[") and "](" in ENV_URL:
-    match = re.search(r'\((https?://.*?)\)', ENV_URL)
+# Strip markdown link syntax if ENV_URL was accidentally set as "[text](url)"
+_link_match = re.search(r'\((https?://[^)]+)\)', ENV_URL)
+if _link_match:
+    ENV_URL = _link_match.group(1)
+
+SYSTEM_PROMPT = textwrap.dedent("""
+    You are a Senior Python Engineer diagnosing a broken repository.
+    The repo has a bug that is making pytest fail. Your job is to fix it.
+
+    Strategy — follow this order strictly:
+    1. On your first action, ALWAYS run: pytest --tb=short -q
+    2. Read the traceback carefully. Identify the file and line number.
+    3. Use cat <filename> to read the broken file in full.
+    4. Write the corrected file using edit_file. Overwrite the whole file.
+    5. Run pytest again to confirm all tests pass.
+
+    RULES:
+    - Respond with ONLY valid JSON. No explanation, no markdown fences.
+    - For run_command: {"action_type": "run_command", "command": "<shell command>"}
+    - For edit_file:   {"action_type": "edit_file", "file_path": "<path>", "new_content": "<full file content>"}
+    - In new_content, use \\n for newlines. Escape all backslashes and quotes properly.
+    - Never leave new_content empty. Always write the complete corrected file.
+    - Do not use triple backticks or any text outside the JSON object.
+""").strip()
+
+# ── Logging (exact format the validator expects) ──────────────────────────────
+def log_start(task: str, env: str, model: str) -> None:
+    print(f"[START] task={task} env={env} model={model}", flush=True)
+
+def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
+    print(
+        f"[STEP] step={step} action={json.dumps(action)} "
+        f"reward={reward:.2f} done={str(done).lower()} "
+        f"error={error if error else 'null'}",
+        flush=True,
+    )
+
+def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
+    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    print(
+        f"[END] success={str(success).lower()} steps={steps} "
+        f"score={score:.3f} rewards={rewards_str}",
+        flush=True,
+    )
+
+# ── HTTP helpers (sync requests — no asyncio complexity) ──────────────────────
+def wait_for_health(timeout: int = 60) -> bool:
+    """Poll /health until the server responds or timeout expires."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            r = requests.get(f"{ENV_URL}/health", timeout=3)
+            if r.status_code == 200:
+                return True
+        except requests.exceptions.RequestException:
+            pass
+        time.sleep(2)
+    return False
+
+def reset_env(task_id: str) -> dict:
+    r = requests.post(
+        f"{ENV_URL}/reset",
+        json={"task_id": task_id, "seed": 42},
+        timeout=30,
+    )
+    r.raise_for_status()
+    data = r.json()
+    # Handle both {observation: {...}} and flat observation shapes
+    return data.get("observation", data)
+
+def step_env(action: dict) -> dict:
+    r = requests.post(f"{ENV_URL}/step", json=action, timeout=30)
+    r.raise_for_status()
+    return r.json()
+
+def grade_env() -> dict:
+    r = requests.post(f"{ENV_URL}/grade", timeout=30)
+    r.raise_for_status()
+    return r.json()
+
+# ── Action parsing (robust — handles markdown fences and trailing text) ────────
+def parse_action(raw: str) -> Optional[dict]:
+    """Extract the first valid JSON object from the LLM response."""
+    # Strip markdown code fences if present
+    clean = re.sub(r"```(?:json)?", "", raw).strip()
+
+    # Try direct parse first
+    try:
+        return json.loads(clean)
+    except json.JSONDecodeError:
+        pass
+
+    # Find the first { ... } block
+    match = re.search(r'\{.*\}', clean, re.DOTALL)
     if match:
-        ENV_URL = match.group(1)
-
-# API Keys (Loaded cleanly from environment, no hardcoding!)
-HF_TOKEN = os.getenv("HF_TOKEN")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-
-# Primary: Hugging Face (Llama 3 8B)
-hf_client = OpenAI(
-    base_url="https://router.huggingface.co/v1",
-    api_key=HF_TOKEN
-)
-HF_MODEL = "meta-llama/Meta-Llama-3-8B-Instruct"
-
-# Fallback: Groq (Llama 3.1 8B - Blazing fast free tier)
-groq_client = OpenAI(
-    base_url="https://api.groq.com/openai/v1",
-    api_key=GROQ_API_KEY
-)
-# The Smart Model (Llama 3.3 70B is a genius at coding and free on Groq)
-GROQ_MODEL = "llama-3.3-70b-versatile"
-
-def get_llm_action(messages):
-    """Forces Groq's 70B model first for maximum intelligence."""
-    # 1. ALWAYS Try Groq 70B First!
-    if GROQ_API_KEY:
         try:
-            response = groq_client.chat.completions.create(
-                model=GROQ_MODEL,
-                messages=messages,
-                temperature=0.1 # Low temperature so it doesn't hallucinate
+            return json.loads(match.group(0))
+        except json.JSONDecodeError:
+            pass
+
+    return None
+
+# ── LLM call ──────────────────────────────────────────────────────────────────
+def get_llm_action(client: OpenAI, messages: List[dict]) -> Optional[dict]:
+    try:
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=messages,
+            temperature=0.1,
+            max_tokens=1024,
+        )
+        raw = response.choices[0].message.content or ""
+        return parse_action(raw), raw
+    except Exception as exc:
+        return None, str(exc)
+
+# ── Single task runner ─────────────────────────────────────────────────────────
+def run_task(client: OpenAI, task: str) -> None:
+    log_start(task=task, env=BENCHMARK, model=MODEL_NAME)
+
+    rewards: List[float] = []
+    steps_taken = 0
+    score = 0.0
+    success = False
+
+    try:
+        # ── Reset ────────────────────────────────────────────────────────────
+        obs = reset_env(task)
+
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+
+        for step in range(1, MAX_STEPS + 1):
+            steps_taken = step
+
+            # Build user message from current observation
+            user_content = (
+                f"Step {step}/{MAX_STEPS}\n"
+                f"Directory: {obs.get('current_directory', '?')}\n"
+                f"Files: {obs.get('directory_contents', [])}\n"
+                f"STDOUT:\n{obs.get('last_command_stdout', '')}\n"
+                f"STDERR:\n{obs.get('last_command_stderr', '')}\n"
+                f"Done: {obs.get('done', False)}\n\n"
+                f"What is your next action? Respond with JSON only."
             )
-            return response.choices[0].message.content.strip()
-        except Exception as e:
-            print(f"      [!] Groq API failed: {e}. Trying Hugging Face...")
-    
-    # 2. Fallback to HF 8B only if Groq crashes
-    if HF_TOKEN:
-        try:
-            response = hf_client.chat.completions.create(
-                model=HF_MODEL,
-                messages=messages,
-                temperature=0.1
+            messages.append({"role": "user", "content": user_content})
+
+            # ── Get action from LLM ───────────────────────────────────────
+            action_dict, raw_response = get_llm_action(client, messages)
+
+            if action_dict is None:
+                # LLM failed or gave unparseable output — fall back to pytest
+                action_dict = {"action_type": "run_command", "command": "pytest --tb=short -q"}
+                raw_response = json.dumps(action_dict)
+
+            # Add assistant response to history
+            messages.append({"role": "assistant", "content": raw_response})
+
+            # ── Step the environment ──────────────────────────────────────
+            try:
+                step_result = step_env(action_dict)
+            except requests.exceptions.RequestException as e:
+                log_step(step=step, action=json.dumps(action_dict),
+                         reward=0.0, done=True, error=str(e))
+                rewards.append(0.0)
+                break
+
+            obs = step_result.get("observation", step_result)
+            reward_obj = step_result.get("reward", {})
+            reward = float(
+                reward_obj.get("total", reward_obj)
+                if isinstance(reward_obj, dict)
+                else reward_obj
             )
-            return response.choices[0].message.content.strip()
-        except Exception as e:
-            print(f"      [!] Primary HF API also failed ({e}).")
-            
-    raise Exception("No valid API keys found in environment or both APIs crashed.")
+            done = step_result.get("done", obs.get("done", False))
+            error = step_result.get("info", {}).get("error") if isinstance(step_result.get("info"), dict) else None
 
-def run_inference():
-    tasks = ["easy", "medium", "hard"]
-    max_steps = 10
+            rewards.append(reward)
+            log_step(
+                step=step,
+                action=json.dumps(action_dict),
+                reward=reward,
+                done=done,
+                error=error,
+            )
 
-    for task in tasks:
-        print(f"\n[START] Task: {task}")
+            if done:
+                break
 
-        # 1. Reset the environment via HTTP
+        # ── Grade ─────────────────────────────────────────────────────────
         try:
-            reset_res = requests.post(f"{ENV_URL}/reset", json={"task_id": task})
-            reset_res.raise_for_status()
-            obs = reset_res.json()
-        except Exception as e:
-            print(f"Failed to reset environment for task {task}: {e}")
-            continue
+            grade_result = grade_env()
+            score = float(grade_result.get("total_reward", 0.0))
+        except Exception:
+            # Fallback: derive score from rewards if /grade fails
+            score = max(rewards) if rewards else 0.0
 
-        # Initialize the agent's memory OUTSIDE the step loop!
-        messages = [
-            {
-                "role": "system",
-                "content": (
-                    "You are a Senior Python Engineer diagnosing a broken codebase. DO NOT guess the bug or hallucinate generic 'add_numbers' code. You must read the environment.\n"
-                    "CRITICAL DEBUGGING WORKFLOW (FOLLOW EXACTLY):\n"
-                    "1. Your VERY FIRST action MUST be to run 'pytest' to see the actual test failures and identify the broken files.\n"
-                    "2. Next, use 'run_command' with 'cat <filename>' to read the full code of the failing file.\n"
-                    "3. Use 'edit_file' to fix the logic. WARNING: 'edit_file' COMPLETELY OVERWRITES THE FILE. Your 'new_content' MUST include the ENTIRE script (all original imports, unchanged functions, and your fix).\n"
-                    "4. Run 'pytest' again to verify all tests pass.\n"
-                    "You must output ONLY valid JSON in one of the following formats:\n"
-                    "{\"action_type\": \"run_command\", \"command\": \"<your command>\"}\n"
-                    "OR\n"
-                    "{\"action_type\": \"edit_file\", \"file_path\": \"<path>\", \"new_content\": \"<content>\"}\n"
-                    "Do not include markdown formatting, explanations, or any other text."
-                )
-            }
-        ]
-        
-        # 2. Step Loop
-        for step in range(max_steps):
-            print(f"[STEP] {step}")
+        score = min(max(score, 0.0), 1.0)
+        success = score >= 0.7
 
-            # Append the environment's response to the agent's memory
-            messages.append({
-                "role": "user",
-                "content": f"Current Observation: {json.dumps(obs)}"
-            })
+    except Exception as exc:
+        # Catch-all — always emit [END] no matter what
+        print(f"[DEBUG] Task {task} crashed: {exc}", flush=True)
+        score = 0.0
+        success = False
 
-            # Call LLM using our dual-routed function
-           # Call LLM using our dual-routed function (WITH HACKATHON OVERRIDES)
-            try:
-                # FORCE the agent to read the errors and code before it can guess!
-                if step == 0:
-                    action_payload = {"action_type": "run_command", "command": "pytest"}
-                    print("      [!] System Override: Forcing Step 0 -> pytest")
-                elif step == 1:
-                    action_payload = {"action_type": "run_command", "command": "cat main.py"}
-                    print("      [!] System Override: Forcing Step 1 -> cat main.py")
-                else:
-                    # Now that it has the context, let the smart 70B model fix it
-                    raw_action = get_llm_action(messages)
+    finally:
+        log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
-                    if raw_action.startswith("```json"):
-                        raw_action = raw_action[7:]
-                    if raw_action.startswith("```"):
-                        raw_action = raw_action[3:]
-                    if raw_action.endswith("```"):
-                        raw_action = raw_action[:-3]
-                    
-                    action_payload = json.loads(raw_action.strip())
-                
-                print(f"      Attempting Action: {action_payload}")
-                
-                messages.append({
-                    "role": "assistant",
-                    "content": json.dumps(action_payload)
-                })
-            
-            except json.JSONDecodeError:
-                action_payload = {"action_type": "run_command", "command": "echo 'Invalid JSON. Retrying...'"}
-                print(f"      [!] JSON Parse Error. Falling back to echo.")
-            except Exception as e:
-                print(f"      [!] Critical Error during LLM inference: {e}")
-                break
 
-            # Execute action via HTTP POST /step
-            try:
-                step_res = requests.post(f"{ENV_URL}/step", json={"action": action_payload})
-                step_res.raise_for_status()
-                obs = step_res.json()
-            except Exception as e:
-                print(f"      [!] Error calling /step endpoint: {e}")
-                break
+# ── Entry point ───────────────────────────────────────────────────────────────
+def main() -> None:
+    # Validate API key
+    if not API_KEY:
+        print("[DEBUG] No API key found. Set GROQ_API_KEY, HF_TOKEN, or API_KEY.", flush=True)
+        # Still emit END lines so the validator doesn't hang
+        for task in ["easy", "medium", "hard"]:
+            log_start(task=task, env=BENCHMARK, model=MODEL_NAME)
+            log_end(success=False, steps=0, score=0.0, rewards=[])
+        sys.exit(0)
 
-            # Break loop if environment signals the task is complete
-            if obs.get("done"):
-                print("      [✓] Task complete signal received from environment.")
-                break
+    # Wait for the environment server to be healthy
+    print(f"[DEBUG] Waiting for environment at {ENV_URL} ...", flush=True)
+    if not wait_for_health(timeout=60):
+        print(f"[DEBUG] Environment not reachable at {ENV_URL} after 60s.", flush=True)
+        for task in ["easy", "medium", "hard"]:
+            log_start(task=task, env=BENCHMARK, model=MODEL_NAME)
+            log_end(success=False, steps=0, score=0.0, rewards=[])
+        sys.exit(0)
 
-        # 3. Grade the episode via HTTP
-        try:
-            grade_res = requests.post(f"{ENV_URL}/grade", json={"task_id": task})
-            grade_res.raise_for_status()
-            grade_data = grade_res.json()
-            
-            # Formatted exactly to spec
-            print(f"[END] Task: {task} | Reward: {grade_data.get('total_reward')} | Success: {grade_data.get('success')} | Breakdown: {grade_data.get('breakdown')}")
-        except Exception as e:
-            print(f"Error calling /grade endpoint for task {task}: {e}")
+    print(f"[DEBUG] Environment healthy. Starting tasks.", flush=True)
+
+    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+
+    for task in ["easy", "medium", "hard"]:
+        run_task(client, task)
+
 
 if __name__ == "__main__":
-    if __name__ == "__main__":
-    import time
-    
-    # 1. Wait for the server to actually wake up
-    print(f"Waiting for environment at {ENV_URL} to boot up...")
-    for _ in range(30):
-        try:
-            requests.get(ENV_URL, timeout=2)
-            print("Environment is healthy and ready!")
-            break
-        except Exception:
-            time.sleep(1)
+    main()
 
-    # 2. Run inference with a giant safety net to catch remote errors
-    try:
-        run_inference()
-    except Exception as e:
-        print(f"\nCRITICAL INFERENCE CRASH: {e}")
-        import traceback
-        traceback.print_exc()
-        import sys
-        sys.exit(1) # Tell the evaluator exactly why we failed
