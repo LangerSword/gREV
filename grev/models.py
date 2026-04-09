@@ -1,65 +1,68 @@
-from typing import Literal
+"""Typed models for gREV (RepoRescueEnv)."""
 
-from pydantic import BaseModel, ConfigDict, Field
+from __future__ import annotations
 
+from typing import List, Literal, Optional
 
-class Observation(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
+from pydantic import Field
 
-    current_directory: str = Field(
-        ...,
-        description="Absolute path of the agent's current working directory.",
-    )
-    directory_contents: list[str] = Field(
-        ...,
-        description="List of files and folders in the current directory.",
-    )
-    last_command_stdout: str = Field(
-        ...,
-        description="Captured standard output from the most recent shell command.",
-    )
-    last_command_stderr: str = Field(
-        ...,
-        description="Captured standard error from the most recent shell command.",
-    )
-    # --- Added to satisfy OpenEnv alpha serialization quirks ---
-    reward: float = Field(
-        default=0.0,
-        description="Current reward value for the state.",
-    )
-    done: bool = Field(
-        default=False,
-        description="Flag indicating if the task is complete.",
-    )
+try:
+    from openenv.core.env_server.types import Action, Observation, State
+except ImportError:
+    from openenv_core.env_server.types import Action, Observation, State
 
 
-class Action(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
+class GrevAction(Action):
+    """Action submitted by the coding agent."""
 
     action_type: Literal["run_command", "edit_file"] = Field(
         ...,
         description="Type of action the agent wants to execute.",
     )
-    command: str | None = Field(
+    command: Optional[str] = Field(
         default=None,
         description="Shell command to execute when action_type is 'run_command'.",
     )
-    file_path: str | None = Field(
+    file_path: Optional[str] = Field(
         default=None,
         description="Path of the file to edit when action_type is 'edit_file'.",
     )
-    new_content: str | None = Field(
+    new_content: Optional[str] = Field(
         default=None,
         description="Replacement content to write when action_type is 'edit_file'.",
     )
 
 
-class Reward(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
+class GrevObservation(Observation):
+    """Observation returned after each step."""
 
-    score: float = Field(
-        ...,
-        ge=0.0,
-        le=1.0,
-        description="Fractional progress score from 0.0 to 1.0.",
+    current_directory: str = Field(
+        default="",
+        description="Absolute path of the agent's current working directory.",
     )
+    directory_contents: List[str] = Field(
+        default_factory=list,
+        description="List of files and folders in the current directory.",
+    )
+    last_command_stdout: str = Field(
+        default="",
+        description="Captured standard output from the most recent shell command.",
+    )
+    last_command_stderr: str = Field(
+        default="",
+        description="Captured standard error from the most recent shell command.",
+    )
+    last_error: Optional[str] = Field(
+        default=None,
+        description="Error message from the last action, if any.",
+    )
+
+
+class GrevState(State):
+    """Full environment state exposed through state()."""
+
+    task_level: str = ""
+    step_count: int = 0
+    workspace_dir: str = ""
+    max_steps: int = 0
+    directory_contents: List[str] = Field(default_factory=list)

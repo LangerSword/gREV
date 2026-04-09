@@ -1,23 +1,6 @@
-version: "1.0"
-
-environment:
-  name: "gREV"
-  description: "General Reverse Engineering Verification (RepoRescueEnv). A deterministic RL sandbox for autonomous coding agents to diagnose and fix broken Python repositories using strict pytest evaluation."
-  entrypoint: "grev.env:gREVEnv"
-
-models:
-  action: "grev.models:Action"
-  observation: "grev.models:Observation"
-
-tasks:
-  - id: "easy"
-    name: "Syntax Error Fix"
-    description: "Diagnose and fix a basic syntax or definition error inside main.py so that the test suite passes."
-    
-  - id: "medium"
-    name: "Logic Error Fix"
-    description: "Identify and resolve a logical bug within parser.py that is causing the data extraction tests to fail."
-    
-  - id: "hard"
-    name: "Dependency Import Mismatch"
-    description: "Investigate and resolve a cross-file dependency import mismatch between fetcher.py and test_fetcher.py without utilizing external package managers."
+spec_version: 1
+name: grev
+type: space
+runtime: fastapi
+app: server.app:app
+port: 7860
