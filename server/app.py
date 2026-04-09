@@ -17,15 +17,21 @@ except ImportError:
     from models import GrevAction, GrevObservation
     from grev.env import gREVEnv
 
-from fastapi.responses import JSONResponse
 
-app = create_app(
-    gREVEnv,
-    GrevAction,
-    GrevObservation,
-    env_name="grev",
-    max_concurrent_envs=1,
-)
+# Build the OpenEnv app if the framework is available, otherwise a plain FastAPI app
+if create_app is not None:
+    app = create_app(
+        gREVEnv,
+        GrevAction,
+        GrevObservation,
+        env_name="grev",
+        max_concurrent_envs=1,
+    )
+else:
+    from fastapi import FastAPI
+    app = FastAPI(title="gREV")
+
+from fastapi.responses import JSONResponse
 
 
 @app.get("/")
@@ -46,9 +52,4 @@ def main(host: str = "0.0.0.0", port: int = 7860):
 
 
 if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--port", type=int, default=7860)
-    args = parser.parse_args()
-    main(port=args.port)
+    main()
