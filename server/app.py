@@ -1,4 +1,4 @@
-"""FastAPI application for gREV."""
+"""FastAPI application for gREV hugging space."""
 
 from __future__ import annotations
 
