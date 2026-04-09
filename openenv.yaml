@@ -4,3 +4,16 @@ type: space
 runtime: fastapi
 app: server.app:app
 port: 7860
+
+tasks:
+  - id: easy
+    name: "Syntax + Logic Fix"
+    description: "Fix a calculator module with a syntax error (missing colon) and a logic error (wrong operator) so all 8 tests pass."
+
+  - id: medium
+    name: "Multi-Bug Data Pipeline"
+    description: "Diagnose and fix 3 logic bugs in a data processing pipeline (wrong delimiter, off-by-one, inverted comparison) across 14 tests."
+
+  - id: hard
+    name: "Cross-File Import Mismatch"
+    description: "Fix 4 bugs across 2 files — 2 import mismatches, 1 inverted logic, and 1 wrong dict key — in an authentication module with 15 tests."

@@ -21,7 +21,7 @@ app = create_app(
     GrevAction,
     GrevObservation,
     env_name="grev",
-    max_concurrent_envs=4,
+    max_concurrent_envs=1,
 )
 
 

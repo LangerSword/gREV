@@ -153,14 +153,18 @@ def _deterministic_action(obs, step: int, task: str) -> Optional[dict]:
 
     stdout = obs.last_command_stdout or ""
 
-    # After pytest, find what file is failing
+    # After pytest, cat the broken file(s) to understand the problem
     if step == 2:
         if task == "easy":
-            return {"action_type": "run_command", "command": "cat main.py"}
+            return {"action_type": "run_command", "command": "cat calculator.py"}
         elif task == "medium":
-            return {"action_type": "run_command", "command": "cat parser.py"}
+            return {"action_type": "run_command", "command": "cat data_processor.py"}
         elif task == "hard":
-            return {"action_type": "run_command", "command": "cat fetcher.py"}
+            return {"action_type": "run_command", "command": "cat auth.py"}
+
+    # For hard task, also read models.py on step 3
+    if step == 3 and task == "hard":
+        return {"action_type": "run_command", "command": "cat models.py"}
 
     return None
 
