@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "grev"
 version = "0.1.0"
-description = "gREV: RepoRescueEnv — OpenEnv benchmark for autonomous code repair"
+description = "gREV — OpenEnv benchmark for autonomous code repair"
 requires-python = ">=3.10"
 dependencies = [
     "openenv-core[core]>=0.2.2",

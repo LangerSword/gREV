@@ -1,4 +1,4 @@
-"""Typed models for gREV (RepoRescueEnv)."""
+"""Typed models for gREV."""
 
 from __future__ import annotations
 

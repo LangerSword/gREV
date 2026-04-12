@@ -1,4 +1,4 @@
-"""gREV environment implementation — RepoRescueEnv.
+"""gREV environment implementation.
 
 A deterministic RL sandbox where agents diagnose and fix broken Python repos.
 Grading uses a multi-component weighted reward inspired by real code-review quality metrics.

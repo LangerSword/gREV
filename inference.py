@@ -1,4 +1,4 @@
-"""Reproducible baseline inference for gREV (RepoRescueEnv).
+"""Reproducible baseline inference for gREV.
 
 Usage:
   python inference.py --task all --episodes 1 --seed 42

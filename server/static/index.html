@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>gREV — Drop an agent into a broken repo</title>
+<meta name="description" content="gREV is an OpenEnv environment for AI agent training. Drop agents into broken Python repos. They fix code until pytest passes. Deterministic grading.">
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+:root{
+--bg:#0A0A0F;--card:#111118;--border:rgba(255,255,255,0.06);
+--green:#00FF88;--cyan:#00C4FF;--amber:#F59E0B;--red:#EF4444;
+--text:#E8E8F0;--muted:#9CA3AF;--subtle:#6B7280;--sep:#3A3A4A;
+--mono:ui-monospace,'Courier New',monospace;
+--sans:system-ui,-apple-system,sans-serif;
+--radius:4px;
+}
+html{scroll-behavior:smooth;background:var(--bg);color:var(--text)}
+body{font-family:var(--sans);font-size:16px;line-height:1.7;background:var(--bg);overflow-x:hidden}
+a{color:var(--green);text-decoration:none}
+a:hover{text-decoration:underline}
+.wrap{max-width:900px;margin:0 auto;padding:0 24px}
+
+/* NAV */
+.nav{position:sticky;top:0;z-index:100;padding:16px 0;transition:background .3s,backdrop-filter .3s}
+.nav.scrolled{background:rgba(10,10,15,0.85);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+.nav-inner{display:flex;align-items:center;justify-content:space-between;max-width:900px;margin:0 auto;padding:0 24px}
+.nav-logo{font-family:var(--mono);font-size:18px;font-weight:700;color:var(--green);letter-spacing:0.05em}
+.nav-links{display:flex;gap:24px;align-items:center}
+.nav-links a{font-family:var(--mono);font-size:13px;color:var(--muted);text-transform:lowercase;letter-spacing:0.05em;transition:color .2s}
+.nav-links a:hover{color:var(--green);text-decoration:none}
+.nav-cta{font-family:var(--mono);font-size:13px;color:var(--green);border:1px solid var(--green);padding:6px 16px;border-radius:6px;transition:background .2s,color .2s;cursor:pointer;background:transparent}
+.nav-cta:hover{background:var(--green);color:#000;text-decoration:none}
+.health-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px;vertical-align:middle}
+.health-dot.live{background:var(--green);animation:pulse 2s infinite}
+.health-dot.offline{background:var(--red)}
+@keyframes pulse{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(0,255,136,.4)}50%{opacity:.7;box-shadow:0 0 0 6px rgba(0,255,136,0)}}
+
+/* SECTION COMMON */
+section{padding:100px 0}
+@media(max-width:768px){section{padding:60px 0}}
+.section-label{font-family:var(--mono);font-size:13px;color:var(--green);letter-spacing:0.15em;text-transform:uppercase;margin-bottom:12px}
+.section-comment{font-family:var(--mono);font-size:12px;color:var(--subtle);margin-bottom:24px}
+h2{font-size:28px;font-weight:600;letter-spacing:-0.02em;color:var(--text);margin-bottom:16px}
+
+/* HERO */
+.hero{min-height:100vh;display:flex;flex-direction:column;justify-content:center;position:relative;overflow:hidden}
+.hero::before{content:'';position:absolute;top:30%;left:50%;transform:translate(-50%,-50%);width:600px;height:600px;background:radial-gradient(circle,rgba(0,255,136,0.08) 0%,transparent 70%);pointer-events:none;z-index:0}
+.hero .wrap{position:relative;z-index:1}
+.hero-badge{display:inline-block;font-family:var(--mono);font-size:13px;color:var(--green);border:1px solid rgba(0,255,136,0.3);padding:6px 16px;border-radius:var(--radius);margin-bottom:32px;letter-spacing:0.05em}
+.hero-title{font-family:var(--sans);font-size:clamp(52px,7vw,88px);font-weight:800;letter-spacing:-0.04em;line-height:0.95;margin-bottom:24px}
+.hero-title .gradient{background:linear-gradient(135deg,#00FF88 0%,#00C4FF 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.hero-sub{font-size:16px;color:var(--muted);max-width:560px;margin-bottom:32px;line-height:1.7}
+.hero-buttons{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:48px}
+.btn-primary{display:inline-block;font-family:var(--mono);font-size:14px;font-weight:700;background:var(--green);color:#000;padding:12px 28px;border-radius:6px;border:none;cursor:pointer;transition:transform .15s,box-shadow .15s}
+.btn-primary:hover{transform:translateY(-2px);box-shadow:0 4px 20px rgba(0,255,136,0.3);text-decoration:none;color:#000}
+.btn-secondary{display:inline-block;font-family:var(--mono);font-size:14px;font-weight:600;color:var(--green);border:1px solid var(--green);padding:12px 28px;border-radius:6px;background:transparent;cursor:pointer;transition:background .2s,color .2s}
+.btn-secondary:hover{background:rgba(0,255,136,0.1);text-decoration:none}
+
+/* TICKER */
+.ticker-wrap{overflow:hidden;border-top:1px solid var(--sep);border-bottom:1px solid var(--sep);padding:12px 0;margin-bottom:48px}
+.ticker{display:flex;width:max-content}
+.ticker span{font-family:var(--mono);font-size:13px;color:rgba(255,255,255,0.5);white-space:nowrap;padding-right:32px}
+@media(prefers-reduced-motion:no-preference){
+.ticker{animation:scroll-ticker 30s linear infinite}
+}
+@keyframes scroll-ticker{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
+
+/* TERMINAL BOOT */
+.terminal{background:#0D0D14;border:1px solid var(--border);border-radius:0;font-family:var(--mono);font-size:13px;padding:20px;color:var(--green);max-width:620px;position:relative;overflow:hidden}
+.terminal-header{display:flex;gap:6px;margin-bottom:16px}
+.terminal-header i{width:10px;height:10px;border-radius:50%;display:block}
+.terminal-header i:nth-child(1){background:#EF4444}
+.terminal-header i:nth-child(2){background:#F59E0B}
+.terminal-header i:nth-child(3){background:#22C55E}
+.terminal-line{min-height:1.4em;white-space:pre;overflow-x:auto}
+.cursor-blink{display:inline-block;width:8px;height:14px;background:var(--green);vertical-align:middle}
+@media(prefers-reduced-motion:no-preference){
+.cursor-blink{animation:blink 1s step-end infinite}
+}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+
+/* SECTION 02 — LIVE TERMINAL */
+.live-grid{display:grid;grid-template-columns:260px 1fr 200px;gap:16px}
+@media(max-width:768px){.live-grid{grid-template-columns:1fr;gap:12px}}
+.task-card{background:var(--card);border:1px solid var(--border);padding:14px;cursor:pointer;transition:border-color .2s,background .2s;border-left:3px solid transparent}
+.task-card:hover{background:rgba(17,17,24,0.9)}
+.task-card.active{border-left-color:var(--green)}
+.task-card .task-name{font-family:var(--mono);font-size:14px;font-weight:700;color:var(--text);margin-bottom:4px}
+.task-card .task-desc{font-size:12px;color:var(--muted);line-height:1.5}
+.difficulty-pill{display:inline-block;font-family:var(--mono);font-size:10px;padding:2px 8px;border-radius:10px;margin-left:8px;vertical-align:middle;font-weight:600}
+.difficulty-pill.easy{background:rgba(0,255,136,0.15);color:var(--green)}
+.difficulty-pill.medium{background:rgba(245,158,11,0.15);color:var(--amber)}
+.difficulty-pill.medium-hard{background:rgba(234,88,12,0.15);color:#EA580C}
+.difficulty-pill.hard{background:rgba(239,68,68,0.15);color:var(--red)}
+.difficulty-pill.very-hard{background:rgba(185,28,28,0.15);color:#B91C1C}
+.live-output{background:#0D0D14;border:1px solid var(--border);padding:16px;min-height:300px;max-height:400px;overflow-y:auto;font-family:var(--mono);font-size:12px;color:var(--muted);margin-bottom:8px}
+.live-output .out-line{margin-bottom:2px;white-space:pre-wrap;word-break:break-all}
+.live-output .out-line.pass{color:var(--green)}
+.live-output .out-line.fail{color:var(--red)}
+.live-output .out-line.warn{color:var(--amber)}
+.live-output .out-line.info{color:var(--muted)}
+.quick-actions{display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+.quick-actions button{font-family:var(--mono);font-size:11px;background:var(--card);border:1px solid var(--border);color:var(--muted);padding:4px 12px;cursor:pointer;transition:color .2s,border-color .2s;border-radius:var(--radius)}
+.quick-actions button:hover{color:var(--green);border-color:var(--green)}
+.live-input-wrap{display:flex;align-items:center;background:#0D0D14;border-bottom:2px solid var(--green);padding:0}
+.live-input-wrap .prompt-label{font-family:var(--mono);font-size:13px;color:var(--green);padding:10px;white-space:nowrap;user-select:none}
+.live-input{flex:1;background:transparent;border:none;outline:none;color:var(--text);font-family:var(--mono);font-size:13px;padding:10px 10px 10px 0}
+.reward-panel{background:var(--card);border:1px solid var(--border);padding:20px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:12px}
+.reward-score{font-family:var(--mono);font-size:48px;font-weight:800;transition:color .3s}
+.reward-score.high{color:var(--green)}
+.reward-score.mid{color:var(--amber)}
+.reward-score.low{color:var(--red)}
+.fuel-gauge{width:24px;height:120px;background:#1a1a24;border:1px solid var(--border);position:relative;border-radius:2px}
+.fuel-fill{position:absolute;bottom:0;left:0;right:0;background:var(--green);transition:height .6s ease;border-radius:0 0 2px 2px}
+.step-counter{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.grade-btn{font-family:var(--mono);font-size:13px;color:var(--green);border:1px solid var(--green);background:transparent;padding:8px 20px;cursor:pointer;transition:background .2s,color .2s;border-radius:var(--radius);margin-top:auto}
+.grade-btn:hover{background:var(--green);color:#000}
+
+/* SECTION 03 — HOW IT WORKS */
+.step-item{border-left:3px solid var(--green);padding:0 0 0 24px;margin-bottom:40px;position:relative}
+.step-num{font-family:var(--mono);font-size:40px;font-weight:800;color:var(--green);opacity:0.3;line-height:1;margin-bottom:4px}
+.step-item h3{font-size:20px;font-weight:600;margin-bottom:8px;color:var(--text)}
+.step-item p{color:var(--muted);font-size:15px;line-height:1.7}
+.bento{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:48px}
+@media(max-width:768px){.bento{grid-template-columns:1fr}}
+.bento-card{background:var(--card);border:1px solid var(--border);padding:28px;transition:border-color .3s}
+.bento-card:hover{border-color:rgba(0,255,136,0.2)}
+.bento-val{font-family:var(--mono);font-size:36px;font-weight:800;background:linear-gradient(135deg,#00FF88,#00C4FF);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:4px}
+.bento-label{font-family:var(--mono);font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em}
+
+/* SECTION 04 — TASKS */
+.task-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px;margin-bottom:40px}
+.t-card{background:var(--card);border:1px solid var(--border);padding:20px;border-left:3px solid var(--green)}
+.t-card.med{border-left-color:var(--amber)}
+.t-card.med-hard{border-left-color:#EA580C}
+.t-card.hrd{border-left-color:var(--red)}
+.t-card.vhrd{border-left-color:#B91C1C}
+.t-card .t-label{font-family:var(--mono);font-size:13px;font-weight:700;color:var(--text);margin-bottom:8px}
+.t-card .t-comment{font-family:var(--mono);font-size:12px;color:var(--subtle);font-style:italic;margin-bottom:8px}
+.t-card .t-body{font-size:13px;color:var(--muted);line-height:1.6}
+.t-card .t-score{font-family:var(--mono);font-size:12px;color:var(--green);margin-top:8px}
+.reward-table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:13px}
+.reward-table th,.reward-table td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--sep)}
+.reward-table th{color:var(--subtle);font-weight:400;text-transform:lowercase}
+.reward-table td{color:var(--muted)}
+.reward-table td:nth-child(3){color:var(--green)}
+
+/* SECTION 05 — API */
+.api-card{background:var(--card);border:1px solid var(--border);margin-bottom:12px;border-radius:var(--radius)}
+.api-header{display:flex;align-items:center;gap:12px;padding:16px;cursor:pointer;user-select:none}
+.method-pill{font-family:var(--mono);font-size:11px;font-weight:700;padding:3px 10px;border-radius:10px}
+.method-pill.get{background:rgba(59,130,246,0.15);color:#3B82F6}
+.method-pill.post{background:rgba(0,255,136,0.15);color:var(--green)}
+.api-path{font-family:var(--mono);font-size:14px;font-weight:700;color:var(--text)}
+.api-desc{font-size:13px;color:var(--muted);margin-left:auto}
+.api-toggle{color:var(--subtle);font-family:var(--mono);font-size:16px;transition:transform .2s}
+.api-card.open .api-toggle{transform:rotate(90deg)}
+.api-body{display:none;padding:0 16px 16px;border-top:1px solid var(--sep)}
+.api-card.open .api-body{display:block}
+.api-code{background:#0D0D14;font-family:var(--mono);font-size:12px;color:#A3E635;padding:16px;white-space:pre;overflow-x:auto;border-radius:2px;margin-top:12px}
+
+/* FOOTER */
+footer{background:var(--card);border-top:1px solid var(--border);padding:48px 0 0}
+.footer-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:32px;margin-bottom:32px}
+@media(max-width:768px){.footer-grid{grid-template-columns:1fr;text-align:center}}
+.footer-grid .col{font-family:var(--mono);font-size:13px;color:var(--muted)}
+.footer-grid .col a{color:var(--muted);transition:color .2s}
+.footer-grid .col a:hover{color:var(--green)}
+.footer-grid .col .logo-f{font-size:18px;font-weight:700;color:var(--green);margin-bottom:8px}
+.footer-ticker{overflow:hidden;border-top:1px solid var(--sep);padding:12px 0}
+.footer-ticker .ticker{font-size:12px}
+@media(prefers-reduced-motion:no-preference){
+.footer-ticker .ticker{animation:scroll-ticker 50s linear infinite}
+}
+.footer-bottom{text-align:center;padding:16px 0;border-top:1px solid var(--sep)}
+.footer-bottom span{font-family:var(--mono);font-size:12px;color:var(--subtle)}
+
+/* ANIMATIONS */
+@media(prefers-reduced-motion:no-preference){
+.fade-up{opacity:0;transform:translateY(24px);transition:opacity .5s ease,transform .5s ease}
+.fade-up.visible{opacity:1;transform:translateY(0)}
+}
+@media(prefers-reduced-motion:reduce){
+.fade-up{opacity:1;transform:none}
+}
+
+/* MOBILE */
+@media(max-width:768px){
+.nav-links{display:none}
+.hero-title{font-size:clamp(36px,10vw,52px)}
+.api-desc{display:none}
+}
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav class="nav" id="nav">
+<div class="nav-inner">
+<a href="#" class="nav-logo">gREV</a>
+<div class="nav-links">
+<a href="#how-it-works">docs</a>
+<a href="#api">api</a>
+<a href="https://github.com/LangerSword/gREV" target="_blank">github</a>
+<span id="health-status" style="font-family:var(--mono);font-size:13px;color:var(--muted)"><span class="health-dot offline" id="health-dot"></span><span id="health-text">offline</span></span>
+</div>
+<a href="#try-it" class="nav-cta">try it →</a>
+</div>
+</nav>
+
+<!-- HERO -->
+<section class="hero" id="hero">
+<div class="wrap">
+<div class="fade-up">
+<span class="hero-badge">[ OpenEnv · Scaler × Meta / HF Hackathon 2026 ]</span>
+</div>
+<h1 class="hero-title fade-up" style="transition-delay:.08s">
+Drop an agent into<br>a broken repo. Watch it <span class="gradient">fix things.</span>
+</h1>
+<p class="hero-sub fade-up" style="transition-delay:.16s">
+gREV is a live AI agent training environment. The agent reads pytest output, edits broken Python files, and earns reward proportional to tests fixed. 100% deterministic grading.
+</p>
+<div class="hero-buttons fade-up" style="transition-delay:.24s">
+<a href="#try-it" class="btn-primary">→ try the api</a>
+<a href="https://github.com/LangerSword/gREV" target="_blank" class="btn-secondary">[ view on github ]</a>
+</div>
+</div>
+
+<div class="ticker-wrap fade-up" style="transition-delay:.32s">
+<div class="ticker" id="hero-ticker"></div>
+</div>
+
+<div class="wrap fade-up" style="transition-delay:.4s">
+<div class="terminal" id="boot-terminal">
+<div class="terminal-header"><i></i><i></i><i></i></div>
+<div id="boot-lines"></div>
+</div>
+</div>
+</section>
+
+<!-- SECTION 02 — LIVE TERMINAL -->
+<section id="try-it">
+<div class="wrap">
+<div class="fade-up">
+<div class="section-label">02 / try it live</div>
+<div class="section-comment">// interactive playground</div>
+</div>
+<div class="live-grid fade-up" style="transition-delay:.08s">
+<div class="task-selector" id="task-selector"></div>
+<div class="live-center">
+<div class="live-output" id="live-output"><div class="out-line info">Select a task and hit reset to start.</div></div>
+<div class="quick-actions">
+<button onclick="quickCmd('pytest')">pytest</button>
+<button onclick="quickCmd('pytest -v')">pytest -v</button>
+<button onclick="quickCmd('cat main.py')">cat main.py</button>
+</div>
+<div class="live-input-wrap">
+<span class="prompt-label">grev@env:~$</span>
+<input class="live-input" id="live-input" type="text" placeholder="enter command..." autocomplete="off">
+</div>
+</div>
+<div class="reward-panel">
+<div style="font-family:var(--mono);font-size:11px;color:var(--subtle);text-transform:uppercase;letter-spacing:.1em">reward</div>
+<div class="reward-score high" id="reward-val">0.000</div>
+<div class="fuel-gauge"><div class="fuel-fill" id="fuel-fill" style="height:0%"></div></div>
+<div class="step-counter" id="step-counter">step 0 / 0</div>
+<button class="grade-btn" onclick="doGrade()">[ grade ]</button>
+</div>
+</div>
+</div>
+</section>
+
+<!-- SECTION 03 — HOW IT WORKS -->
+<section id="how-it-works">
+<div class="wrap">
+<div class="fade-up">
+<div class="section-label">03 / the mechanism</div>
+<div class="section-comment">// how it works under the hood</div>
+<h2>Not a demo. Not a toy. A training ground.</h2>
+</div>
+<div class="fade-up" style="transition-delay:.08s">
+<div class="step-item"><div class="step-num">01</div><h3>RESET</h3><p>Agent calls POST /reset. A clean broken repo is copied to /tmp/workspace. Pytest is failing. The clock starts.</p></div>
+<div class="step-item"><div class="step-num">02</div><h3>STEP</h3><p>Agent reads pytest output. Edits files. Runs commands. Each action costs a step. Each fixed test earns fractional reward. score = pytest_passed / pytest_total</p></div>
+<div class="step-item"><div class="step-num">03</div><h3>GRADE</h3><p>POST /grade returns the final score: 0.000 to 1.000. Deterministic. Reproducible. Same seed = same bug = same grading. No LLM judge. Just pytest.</p></div>
+</div>
+<div class="bento fade-up" style="transition-delay:.16s">
+<div class="bento-card"><div class="bento-val">5</div><div class="bento-label">Tasks (easy → very-hard)</div></div>
+<div class="bento-card"><div class="bento-val">1.000</div><div class="bento-label">Baseline reward (all tasks)</div></div>
+<div class="bento-card"><div class="bento-val">15s</div><div class="bento-label">Subprocess timeout</div></div>
+<div class="bento-card"><div class="bento-val">100%</div><div class="bento-label">Deterministic grading</div></div>
+</div>
+</div>
+</section>
+
+<!-- SECTION 04 — TASKS -->
+<section id="tasks">
+<div class="wrap">
+<div class="fade-up">
+<div class="section-label">04 / task corpus</div>
+<div class="section-comment">// three bugs. three lessons. two more for the brave.</div>
+<h2>Broken by design. Fixed by agents.</h2>
+</div>
+<div class="task-cards fade-up" style="transition-delay:.08s">
+<div class="t-card">
+<div class="t-label">[EASY] Syntax error · calculator.py</div>
+<div class="t-comment">// A missing colon. The most honest bug.</div>
+<div class="t-body">pytest fails on collection. SyntaxError. Target: read the traceback, fix the line, confirm.</div>
+<div class="t-score">Expected agent score: ~0.85</div>
+</div>
+<div class="t-card med">
+<div class="t-label">[MEDIUM] Logic error · data_processor.py</div>
+<div class="t-comment">// Code runs. Tests disagree.</div>
+<div class="t-body">No crash. Just wrong answers. Off-by-one. Agent must read assertions, trace the logic.</div>
+<div class="t-score">Expected agent score: ~0.60</div>
+</div>
+<div class="t-card med-hard">
+<div class="t-label">[MEDIUM-HARD] Decorator & generator · pipeline.py</div>
+<div class="t-comment">// Looks correct. Isn't.</div>
+<div class="t-body">Closures, generators, mutability. Each bug is a subtle Python pattern that reads right on first pass.</div>
+<div class="t-score">Expected agent score: ~0.50</div>
+</div>
+<div class="t-card hrd">
+<div class="t-label">[HARD] Import mismatch · auth.py ↔ test_auth.py</div>
+<div class="t-comment">// The traceback lies. The real bug is upstream.</div>
+<div class="t-body">Refactor renamed a function. Caller wasn't updated. Agent must read both files, decide which to fix.</div>
+<div class="t-score">Expected agent score: ~0.35</div>
+</div>
+<div class="t-card vhrd">
+<div class="t-label">[VERY-HARD] ABC hierarchy · storage.py</div>
+<div class="t-comment">// Four bugs across an inheritance chain.</div>
+<div class="t-body">MemoryStorage, FileStorage, CachingStorage — each has a different failure. copy() only breaks when isolation works.</div>
+<div class="t-score">Expected agent score: ~0.30</div>
+</div>
+</div>
+<div class="fade-up" style="transition-delay:.16s">
+<table class="reward-table">
+<thead><tr><th>task</th><th>baseline model</th><th>score</th><th>steps</th></tr></thead>
+<tbody>
+<tr><td>easy</td><td>llama-3.3-70b-versatile</td><td>1.000</td><td>4/8</td></tr>
+<tr><td>medium</td><td>llama-3.3-70b-versatile</td><td>1.000</td><td>5/8</td></tr>
+<tr><td>medium-hard</td><td>llama-3.3-70b-versatile</td><td>1.000</td><td>6/8</td></tr>
+<tr><td>hard</td><td>llama-3.3-70b-versatile</td><td>1.000</td><td>6/8</td></tr>
+<tr><td>very-hard</td><td>llama-3.3-70b-versatile</td><td>1.000</td><td>7/8</td></tr>
+<tr><td style="font-weight:700">avg</td><td></td><td style="font-weight:700">1.000</td><td></td></tr>
+</tbody>
+</table>
+</div>
+</div>
+</section>
+
+<!-- SECTION 05 — API -->
+<section id="api">
+<div class="wrap">
+<div class="fade-up">
+<div class="section-label">05 / api</div>
+<div class="section-comment">// one call to start. one score to end.</div>
+<h2>One repo. One agent. One score. No excuses.</h2>
+</div>
+<div class="fade-up" style="transition-delay:.08s" id="api-cards">
+
+<div class="api-card">
+<div class="api-header" onclick="this.parentElement.classList.toggle('open')">
+<span class="method-pill get">GET</span><span class="api-path">/health</span><span class="api-desc">Liveness check</span><span class="api-toggle">›</span>
+</div>
+<div class="api-body"><pre class="api-code">// response
+{"status": "ok", "tasks": ["easy","medium","medium_hard","hard","very_hard"]}</pre></div>
+</div>
+
+<div class="api-card">
+<div class="api-header" onclick="this.parentElement.classList.toggle('open')">
+<span class="method-pill get">GET</span><span class="api-path">/tasks</span><span class="api-desc">List all available tasks</span><span class="api-toggle">›</span>
+</div>
+<div class="api-body"><pre class="api-code">// response
+[
+  {"task_id":"easy","difficulty":"easy","max_steps":12,"reward_range":[0,1]},
+  {"task_id":"medium","difficulty":"medium","max_steps":16,"reward_range":[0,1]},
+  {"task_id":"medium_hard","difficulty":"medium-hard","max_steps":18,"reward_range":[0,1]},
+  {"task_id":"hard","difficulty":"hard","max_steps":20,"reward_range":[0,1]},
+  {"task_id":"very_hard","difficulty":"very-hard","max_steps":24,"reward_range":[0,1]}
+]</pre></div>
+</div>
+
+<div class="api-card open">
+<div class="api-header" onclick="this.parentElement.classList.toggle('open')">
+<span class="method-pill post">POST</span><span class="api-path">/reset</span><span class="api-desc">Start a new episode</span><span class="api-toggle">›</span>
+</div>
+<div class="api-body"><pre class="api-code">// request
+{"task_id": "easy", "seed": 42}
+
+// response → Observation
+{
+  "done": false,
+  "reward": 0.0,
+  "current_directory": "/tmp/grev_workspace",
+  "directory_contents": ["calculator.py","test_calculator.py"],
+  "last_command_stdout": "Environment reset to easy...",
+  "last_command_stderr": "",
+  "last_error": null
+}</pre></div>
+</div>
+
+<div class="api-card">
+<div class="api-header" onclick="this.parentElement.classList.toggle('open')">
+<span class="method-pill post">POST</span><span class="api-path">/step</span><span class="api-desc">Execute one agent action</span><span class="api-toggle">›</span>
+</div>
+<div class="api-body"><pre class="api-code">// request
+{"action_type":"run_command","command":"pytest -v"}
+
+// response → StepResult
+{
+  "done": false,
+  "reward": 0.21,
+  "current_directory": "/tmp/grev_workspace",
+  "last_command_stdout": "...",
+  "last_command_stderr": "",
+  "last_error": null
+}</pre></div>
+</div>
+
+<div class="api-card">
+<div class="api-header" onclick="this.parentElement.classList.toggle('open')">
+<span class="method-pill post">POST</span><span class="api-path">/grade</span><span class="api-desc">Final episode score</span><span class="api-toggle">›</span>
+</div>
+<div class="api-body"><pre class="api-code">// response → EpisodeResult
+{
+  "total_reward": 1.000,
+  "steps_taken": 4,
+  "success": true,
+  "components": {
+    "test_pass_rate": 1.0,
+    "diagnosis_quality": 0.85,
+    "fix_efficiency": 0.90,
+    "penalty_avoidance": 1.0
+  }
+}</pre></div>
+</div>
+
+</div>
+</div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+<div class="wrap">
+<div class="footer-grid">
+<div class="col"><div class="logo-f">gREV</div><div>OpenEnv Environment</div><div style="margin-top:4px">Scaler × Meta / HF</div></div>
+<div class="col" style="display:flex;flex-direction:column;gap:6px;align-items:center"><a href="https://github.com/LangerSword/gREV" target="_blank">GitHub</a><a href="https://langersword-grev-openenv.hf.space" target="_blank">HF Space</a><a href="https://github.com/LangerSword/gREV/blob/main/openenv.yaml" target="_blank">openenv.yaml</a><a href="https://github.com/LangerSword/gREV/blob/main/README.md" target="_blank">README</a></div>
+<div class="col" style="text-align:right"><div>Built by <a href="https://github.com/LangerSword" target="_blank">LangerSword</a> and <a href="https://github.com/wck-d" target="_blank">wck-d</a></div><div>Amaravati, India</div><div style="margin-top:4px">↑ UTC+5:30 · April 2026</div></div>
+</div>
+</div>
+<div class="footer-ticker"><div class="ticker" id="footer-ticker"></div></div>
+<div class="footer-bottom"><span>▊ grev@openenv:~$ <span class="cursor-blink"></span></span></div>
+</footer>
+
+<script>
+/* ── NAV SCROLL ── */
+const nav=document.getElementById('nav');
+window.addEventListener('scroll',()=>{nav.classList.toggle('scrolled',window.scrollY>60)});
+
+/* ── HEALTH CHECK ── */
+(async()=>{
+try{const r=await fetch('/health');if(r.ok){const d=await r.json();if(d.status){document.getElementById('health-dot').className='health-dot live';document.getElementById('health-text').textContent='live'}}}catch(e){/* offline */}
+})();
+
+/* ── TICKERS ── */
+const tickerText='EASY · MEDIUM · MEDIUM-HARD · HARD · VERY-HARD · PYTEST · DETERMINISTIC · OPEN SOURCE · GROQ POWERED · 1.0 REWARD · LLAMA 3.3 · ';
+['hero-ticker','footer-ticker'].forEach(id=>{
+const el=document.getElementById(id);
+el.innerHTML='<span>'+tickerText+'</span>'.repeat(4);
+});
+
+/* ── BOOT SEQUENCE ── */
+const bootLines=[
+'grev@openenv:~$ curl -X POST /reset',
+'  -d \'{"task_id": "hard", "seed": 42}\'',
+'> Environment initialised',
+'> Workspace: /tmp/workspace',
+'> Bug injected: import mismatch',
+'> pytest: 0 passed, 5 failed',
+'> Agent step 1: run_command "pytest -v"',
+'> Agent step 4: edit_file fetcher.py',
+'> pytest: 5 passed, 0 failed',
+'> reward: 1.000  ████████████████ 100%',
+];
+const bootEl=document.getElementById('boot-lines');
+let bLine=0,bChar=0,bootTimer;
+function typeBoot(){
+if(bLine>=bootLines.length){bootEl.innerHTML+='<div class="terminal-line">grev@openenv:~$ <span class="cursor-blink"></span></div>';return}
+if(bChar===0){const div=document.createElement('div');div.className='terminal-line';div.id='boot-line-'+bLine;bootEl.appendChild(div)}
+const lineEl=document.getElementById('boot-line-'+bLine);
+const line=bootLines[bLine];
+if(bChar<line.length){lineEl.textContent=line.substring(0,bChar+1);bChar++;bootTimer=setTimeout(typeBoot,30)}
+else{bChar=0;bLine++;bootTimer=setTimeout(typeBoot,200)}
+}
+setTimeout(typeBoot,800);
+
+/* ── TASK SELECTOR ── */
+const tasksData=[
+{id:'easy',name:'EASY',difficulty:'easy',desc:'Syntax error · calculator.py',maxSteps:12},
+{id:'medium',name:'MEDIUM',difficulty:'medium',desc:'Logic error · data_processor.py',maxSteps:16},
+{id:'medium_hard',name:'MEDIUM-HARD',difficulty:'medium-hard',desc:'Decorator & generator · pipeline.py',maxSteps:18},
+{id:'hard',name:'HARD',difficulty:'hard',desc:'Import mismatch · auth.py',maxSteps:20},
+{id:'very_hard',name:'VERY-HARD',difficulty:'very-hard',desc:'ABC hierarchy · storage.py',maxSteps:24},
+];
+const selectorEl=document.getElementById('task-selector');
+let activeTask=null,sessionReward=0,sessionStep=0,sessionMax=0;
+tasksData.forEach(t=>{
+const card=document.createElement('div');
+card.className='task-card';card.id='task-card-'+t.id;
+card.innerHTML=`<div class="task-name">${t.name}<span class="difficulty-pill ${t.difficulty}">${t.difficulty}</span></div><div class="task-desc">${t.desc}<br><span style="font-family:var(--mono);font-size:11px;color:var(--subtle)">max ${t.maxSteps} steps</span></div>`;
+card.onclick=()=>selectTask(t);
+selectorEl.appendChild(card);
+});
+
+function selectTask(t){
+activeTask=t;sessionStep=0;sessionReward=0;sessionMax=t.maxSteps;
+document.querySelectorAll('.task-card').forEach(c=>c.classList.remove('active'));
+document.getElementById('task-card-'+t.id).classList.add('active');
+updateReward(0);updateStep();
+appendOutput('Resetting to '+t.name+'...','info');
+fetch('/reset',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({task_level:t.id,seed:42})})
+.then(r=>r.json()).then(d=>{appendOutput(d.last_command_stdout||'Environment ready.','pass')})
+.catch(e=>appendOutput('Error: '+e.message,'fail'));
+}
+
+/* ── LIVE OUTPUT ── */
+const outputEl=document.getElementById('live-output');
+function appendOutput(text,cls='info'){const d=document.createElement('div');d.className='out-line '+cls;d.textContent=text;outputEl.appendChild(d);outputEl.scrollTop=outputEl.scrollHeight}
+
+/* ── COMMANDS ── */
+const inputEl=document.getElementById('live-input');
+inputEl.addEventListener('keydown',e=>{if(e.key==='Enter'){const cmd=inputEl.value.trim();if(!cmd)return;inputEl.value='';sendStep(cmd)}});
+function quickCmd(cmd){inputEl.value=cmd;sendStep(cmd)}
+
+function sendStep(command){
+if(!activeTask){appendOutput('Select a task first.','warn');return}
+appendOutput('$ '+command,'info');
+sessionStep++;updateStep();
+fetch('/step',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action_type:'run_command',command})})
+.then(r=>r.json()).then(d=>{
+if(d.last_command_stdout)appendOutput(d.last_command_stdout,d.last_command_stdout.includes('passed')?'pass':'info');
+if(d.last_command_stderr)appendOutput(d.last_command_stderr,'fail');
+if(d.last_error)appendOutput('Error: '+d.last_error,'warn');
+if(typeof d.reward==='number'){animateReward(sessionReward,d.reward);sessionReward=d.reward}
+if(d.done)appendOutput('Episode done.','warn');
+}).catch(e=>appendOutput('Network error: '+e.message,'fail'));
+}
+
+function doGrade(){
+if(!activeTask){appendOutput('No active session.','warn');return}
+fetch('/grade',{method:'POST'}).then(r=>r.json()).then(d=>{
+const score=d.total_reward||d[0]||0;
+appendOutput('GRADE: '+score.toFixed(3),'pass');
+animateReward(sessionReward,score);sessionReward=score;
+}).catch(e=>appendOutput('Grade error: '+e.message,'fail'));
+}
+
+/* ── REWARD ANIMATION ── */
+const rewardEl=document.getElementById('reward-val');
+const fuelEl=document.getElementById('fuel-fill');
+function updateReward(v){
+rewardEl.textContent=v.toFixed(3);
+rewardEl.className='reward-score '+(v>=0.7?'high':v>=0.3?'mid':'low');
+fuelEl.style.height=(v*100)+'%';
+}
+function animateReward(from,to){
+const start=performance.now();const dur=600;
+function tick(now){const p=Math.min((now-start)/dur,1);const v=from+(to-from)*p;updateReward(v);if(p<1)requestAnimationFrame(tick)}
+requestAnimationFrame(tick);
+}
+function updateStep(){document.getElementById('step-counter').textContent='step '+sessionStep+' / '+sessionMax}
+
+/* ── FADE-UP OBSERVER ── */
+if(window.matchMedia('(prefers-reduced-motion:no-preference)').matches){
+const obs=new IntersectionObserver((entries)=>{entries.forEach(e=>{if(e.isIntersecting)e.target.classList.add('visible')})},{threshold:0.15});
+document.querySelectorAll('.fade-up').forEach(el=>obs.observe(el));
+}
+</script>
+</body>
+</html>
