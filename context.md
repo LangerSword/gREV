@@ -3,7 +3,7 @@
 **Tech Stack:** Python 3.10+, Pydantic, Subprocess, Pytest, Docker
 **Workflow:** VS Code + Copilot (Manual Control > Agentic Hallucination)
 
-## 📌 The Concept: "RepoRescueEnv"
+## 📌 The Concept: "gREV"
 A fully authentic, OpenEnv-compliant local developer sandbox. The AI agent is dropped into a broken Python repository and must use terminal commands (`subprocess`) and file edits to debug the code until the `pytest` suite passes perfectly.
 
 ---

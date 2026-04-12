@@ -1,6 +1,7 @@
-"""FastAPI application for gREV hugging space."""
+"""FastAPI application for gREV — OpenEnv environment for autonomous code repair."""
 
 from __future__ import annotations
+import os
 
 try:
     from openenv.core.env_server.http_server import create_app
@@ -31,17 +32,28 @@ else:
     from fastapi import FastAPI
     app = FastAPI(title="gREV")
 
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+
+# Mount static assets
+_static_dir = os.path.join(os.path.dirname(__file__), "static")
+if os.path.isdir(_static_dir):
+    app.mount("/static", StaticFiles(directory=_static_dir), name="static")
 
 
-@app.get("/")
-async def root_health():
-    return JSONResponse(content={"status": "healthy", "message": "gREV is alive!"})
+@app.get("/", response_class=HTMLResponse)
+async def root():
+    index_path = os.path.join(_static_dir, "index.html")
+    try:
+        with open(index_path, "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return HTMLResponse(content="<h1>gREV</h1><p>Landing page not found.</p>", status_code=200)
 
 
 @app.get("/health")
 async def explicit_health():
-    return JSONResponse(content={"status": "healthy"})
+    return JSONResponse(content={"status": "ok", "tasks": ["easy", "medium", "medium_hard", "hard", "very_hard"]})
 
 
 def main(host: str = "0.0.0.0", port: int = 7860):
